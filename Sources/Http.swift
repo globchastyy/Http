@@ -40,10 +40,17 @@ public final class http {
     }
 
     public class func post(_ url: String, body: [String: Any]? = nil, headers: [String: String]? = nil, completion: @escaping (JSON?) -> Void) {
-        HTTP.post(url, body: body ?? [:], headers: headers ?? [:]) {
+        HTTP.post(url, body: body ?? [:], headers: headers ?? [:], encoding: URLEncoding.default) {
             completion($0?.readJSON())
         }
     }
+
+    public class func postJSON(_ url: String, body: [String: Any]? = nil, headers: [String: String]? = nil, completion: @escaping (JSON?) -> Void) {
+        HTTP.post(url, body: body ?? [:], headers: headers ?? [:], encoding: JSONEncoding.default) {
+            completion($0?.readJSON())
+        }
+    }
+
 
     public class func post(_ url: String, body: [String: Any]? = nil) {
         post(url, body: body) { result in }
@@ -75,30 +82,27 @@ public final class http {
 }
 
 fileprivate extension HTTP {
-    class func post(_ url: String,  body: [String: Any], headers: [String: String], callback: @escaping ClientRequest.Callback) {
+    class func post(_ url: String,  body: [String: Any], headers: [String: String], encoding: Encoding, callback: @escaping ClientRequest.Callback) {
         var options: [ClientRequest.Options] = []
         options.append(.schema("")) // so that ClientRequest doesn't apend http
         options.append(.method("POST")) // set method of request
         guard var urlRequest = URL(string: url).flatMap({ URLRequest(url: $0) }) else { return }
         urlRequest.httpMethod = "POST"
 
-
-        try! URLEncoding.default.encode(&urlRequest, parameters: body)
+        try! encoding.encode(&urlRequest, parameters: body)
 
         options.append(.hostname(urlRequest.url!.absoluteString))
 
         options.append(.headers(headers))
 
         if let headers = urlRequest.allHTTPHeaderFields {
-            print(headers)
             options.append(.headers(headers))
         }
-
-
 
         guard let body = urlRequest.httpBody else { return }
         let request = HTTP.request(options, callback: callback)
         request.write(from: body)
+
 
         request.end()
 
@@ -144,6 +148,7 @@ fileprivate  struct URLEncoding: Encoding {
 
         /// Encoding parameters to http body.
         case httpBody
+
     }
 
     /// Default `URLEncoding` instance
@@ -219,6 +224,40 @@ fileprivate  struct URLEncoding: Encoding {
     private static func getQuery(from parameters: [String: Any]) -> String {
         let query = self.getComponents(from: parameters)
         return query.map { "\($0)=\($1)" }.joined(separator: "&")
+    }
+}
+
+
+private struct JSONEncoding: Encoding {
+
+    /// Default `JSONEncoding` instance.
+    static let `default` = JSONEncoding(options: [])
+
+    ///
+    private(set) var options: JSONSerialization.WritingOptions
+
+    /// Initializes new `JSONEncoding` class.
+    ///
+    /// - Parameter options: json serializations options.
+    init(options: JSONSerialization.WritingOptions) {
+        self.options = options
+    }
+
+    /// Encode parameters as json.
+    ///
+    /// - Parameter request: URL request used in encoding.
+    /// - Parameter parameters: parameters of the request.
+    func encode(_ request: inout URLRequest, parameters: [String: Any]?) throws {
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        guard let parameters = parameters, !parameters.isEmpty else { return }
+
+        do {
+            let data = try JSONSerialization.data(withJSONObject: parameters, options: self.options)
+            request.httpBody = data
+        } catch {
+
+        }
     }
 }
 
